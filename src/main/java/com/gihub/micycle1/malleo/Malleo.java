@@ -7,6 +7,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 
 import org.ejml.data.DMatrixRMaj;
@@ -24,43 +25,54 @@ import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.LinearRing;
 import org.locationtech.jts.geom.Location;
+import org.locationtech.jts.geom.Point;
 import org.locationtech.jts.geom.Polygon;
 import org.locationtech.jts.index.SpatialIndex;
 import org.locationtech.jts.index.hprtree.HPRtree;
+import org.locationtech.jts.operation.distance.DistanceOp;
 import org.locationtech.jts.operation.overlayng.CoverageUnion;
 
 /**
- * 2D As-Rigid-As-Possible (ARAP) shape deformation using the edge-based 2-step
- * method from Igarashi & Igarashi, JGT 2009.
+ * 2D As-Rigid-As-Possible (ARAP) shape deformation.
  *
  * <p>
- * Workflow:
- * <ol>
- * <li><b>Construction</b> (this class): triangulates the input polygon
- * (optionally refined with Steiner points), extracts edges, and precomputes
- * per-edge terms used by ARAP.</li>
- * <li><b>{@link #compile(List)}</b>: "compilation" step for a chosen handle
- * set. Locates each handle in the mesh, computes barycentric coordinates,
- * assembles the two normal-equation matrices (step1/step2), and factorizes them
- * for fast repeated solves.</li>
- * <li><b>{@link #deform(Compiled, List)}</b>: performs one interactive update
- * given handle target positions.</li>
- * </ol>
+ * {@code Malleo} is a small, production-oriented ARAP solver for 2D shapes. You
+ * provide a triangle mesh that covers the rest shape; the solver lets you
+ * deform the shape interactively by dragging “handles” (points constrained to
+ * target positions).
  *
- * <p>
- * Input/output:
+ * <h2>Inputs</h2>
  * <ul>
- * <li>Handles may be placed at arbitrary positions inside the polygon (not just
- * at mesh vertices) using barycentric constraints.</li>
- * <li>The returned polygon is produced by moving only the original boundary
- * ring vertices (shell + holes); interior triangulation vertices are used for
- * computation only.</li>
+ * <li><b>Triangulation</b>: a {@link Geometry} whose components are triangle
+ * {@link Polygon}s covering the rest shape.</li>
+ * <li><b>Handles</b>: points given in rest-space. Handles can lie on vertices,
+ * edges, or anywhere inside the rest polygon.</li>
  * </ul>
  *
+ * <h2>Typical usage</h2>
+ * <ol>
+ * <li>Create the solver: {@code new Malleo(triangulation, params)}</li>
+ * <li>Prepare a fixed handle set once via {@link #prepareHandles(List)} (or
+ * {@link #prepareHandles(List)}).</li>
+ * <li>On each interactive update, call {@link #solve(CompiledHandles, List)}
+ * (or {@link #solve(CompiledHandles, List)}) with the same handle order and new
+ * target positions.</li>
+ * </ol>
+ *
+ * <h2>Output</h2>
  * <p>
- * This implementation solves sparse normal equations with Cholesky
- * factorization (SPD expected).
- * 
+ * The returned {@link Polygon} is constructed by moving only the original
+ * boundary ring vertices (shell and holes). Interior triangulation vertices
+ * exist only for computation. The output may self-intersect.
+ *
+ * <h2>Notes</h2>
+ * <ul>
+ * <li>At least 2 handles are required for a stable solve.</li>
+ * <li>If {@link Params#snapHandlesToBoundary} is enabled, rest-space handle
+ * points outside the polygon are projected to the closest point on the rest
+ * polygon before constraints are built.</li>
+ * </ul>
+ *
  * @author Michael Carleton
  */
 public final class Malleo {
@@ -72,23 +84,25 @@ public final class Malleo {
 	private final DMatrixSparseCSC gram2Base; // edges only, V×V
 
 	/**
-	 * Creates a deformer for a triangulation.
+	 * Creates an ARAP deformer from a triangle mesh geometry.
+	 * <p>
+	 * <b>Note:</b> The resolution and quality of {@code triangulation} affect the
+	 * deformation: finer, well-shaped triangles typically produce smoother results.
 	 *
-	 * @param restPolygon rest shape; may contain holes
+	 * @param triangulation triangle mesh geometry covering the rest shape
 	 */
 	public Malleo(Geometry triangulation) {
-		this((Polygon) CoverageUnion.union(triangulation), triangulation, new Params());
+		this(triangulation, new Params());
 	}
 
 	/**
-	 * Creates a deformer for a triangulation.
-	 *
+	 * Creates an ARAP deformer from a triangle mesh geometry.
 	 * <p>
-	 * Subsequent calls to {@link #compile(List)} define a particular handle set for
-	 * interactive deformation.
+	 * <b>Note:</b> The resolution and quality of {@code triangulation} affect the
+	 * deformation: finer, well-shaped triangles typically produce smoother results.
 	 *
-	 * @param restPolygon rest shape; may contain holes
-	 * @param params      algorithm and triangulation parameters
+	 * @param triangulation triangle mesh geometry covering the rest shape
+	 * @param params        algorithm parameters
 	 * @throws NullPointerException if any argument is null
 	 */
 	public Malleo(Geometry triangulation, Params params) {
@@ -96,7 +110,7 @@ public final class Malleo {
 	}
 
 	/**
-	 * Creates a deformer from an externally-provided triangulation geometry.
+	 * Creates an ARAP deformer from a triangle mesh geometry.
 	 *
 	 * The provided {@code triangulation} Geometry is expected to contain triangle
 	 * polygons (e.g. the result of a triangulation builder). Triangles whose
@@ -104,8 +118,8 @@ public final class Malleo {
 	 * internal triangulation path).
 	 *
 	 * @param restPolygon   rest shape; may contain holes
-	 * @param triangulation triangulation geometry (collection of triangle polygons)
-	 * @param params        algorithm and triangulation parameters
+	 * @param triangulation triangle mesh geometry covering the rest shape
+	 * @param params        algorithm parameters
 	 * @throws NullPointerException if any argument is null
 	 */
 	private Malleo(Polygon restPolygon, Geometry triangulation, Params params) {
@@ -119,29 +133,38 @@ public final class Malleo {
 	}
 
 	/**
-	 * Prepares an interactive deformation session for a fixed handle set.
+	 * Builds a {@link CompiledHandles} instance for a specific, fixed set of
+	 * handles.
 	 *
 	 * <p>
-	 * This computes, for each handle rest position, the containing triangle and
-	 * barycentric weights, then assembles and factorizes the two normal-equation
-	 * matrices used by ARAP:
+	 * This supports the most common interactive workflow: you choose handle
+	 * locations once (fixed in rest-space), then you move those handles every frame
+	 * while dragging. Building {@link CompiledHandles} upfront lets
+	 * {@link #solve(CompiledHandles, List) solve()} run quickly by reusing
+	 * precomputed data.
+	 *
+	 * <h3>Rules</h3>
 	 * <ul>
-	 * <li><b>Step 1</b>: similarity solve (rotation + uniform scale)</li>
-	 * <li><b>Step 2</b>: scale-adjustment solve (uses normalized per-edge rotation
-	 * from step 1)</li>
+	 * <li>You must provide at least 2 handles.</li>
+	 * <li>Handle points are interpreted in rest-space.</li>
+	 * <li>Each handle should be inside (or on) the rest polygon. If
+	 * {@link Params#snapHandlesToBoundary} is enabled, outside handles are
+	 * projected to the closest point on the rest polygon instead of throwing.</li>
+	 * <li>The handle order matters: {@link #solve(CompiledHandles, List) solve()}
+	 * expects targets in the same order.</li>
 	 * </ul>
 	 *
-	 * @param handleRestPoints handle locations in rest-space; each must lie inside
-	 *                         (or on) {@code restPolygon}
-	 * @return compiled, reusable factorization state for fast calls to
-	 *         {@link #deform(Compiled, List)}
-	 * @throws IllegalArgumentException if fewer than 2 handles are provided, or if
-	 *                                  any handle lies outside the polygon
-	 * @throws IllegalStateException    if factorization fails (e.g., matrix not SPD
-	 *                                  due to degeneracy)
+	 * @param handleRestPoints handle positions in rest-space, in the order you will
+	 *                         later supply targets
+	 * @return reusable compiled state for this exact handle set (count + order)
 	 * @throws NullPointerException     if {@code handleRestPoints} is null
+	 * @throws IllegalArgumentException if fewer than 2 handles are provided, or if
+	 *                                  a handle is outside the polygon and snapping
+	 *                                  is disabled
+	 * @throws IllegalStateException    if the internal factorization fails (e.g.,
+	 *                                  degenerate mesh/constraints)
 	 */
-	public Compiled compile(List<Coordinate> handleRestPoints) {
+	public CompiledHandles prepareHandles(List<Coordinate> handleRestPoints) {
 		Objects.requireNonNull(handleRestPoints);
 		if (handleRestPoints.size() < 2) {
 			throw new IllegalArgumentException("ARAP requires at least 2 handles for a stable solve.");
@@ -151,9 +174,11 @@ public final class Malleo {
 		List<HandleInfo> handles = new ArrayList<>(handleRestPoints.size());
 		for (Coordinate p : handleRestPoints) {
 			if (mesh.locator.locate(p) == Location.EXTERIOR) {
-//			var point = mesh.gf.createPoint(p);
-//				p = DistanceOp.nearestPoints(mesh.restPolygon, point)[0];
-				throw new IllegalArgumentException("Handle rest point must be inside polygon: " + p);
+				if (params.snapHandlesToBoundary) {
+					p = snapHandleToRestPolygon(p);
+				} else {
+					throw new IllegalArgumentException("Handle rest point must be inside polygon: " + p);
+				}
 			}
 			handles.add(locateHandle(p));
 		}
@@ -197,7 +222,7 @@ public final class Malleo {
 			throw new IllegalStateException("Step2 factorization failed (matrix not SPD?).");
 		}
 
-		return new Compiled(handles, solver1, solver2, V);
+		return new CompiledHandles(handles, solver1, solver2, V);
 	}
 
 	/**
@@ -220,8 +245,9 @@ public final class Malleo {
 			for (int a = 0; a < cols; a++) {
 				for (int b = a; b < cols; b++) {
 					double v = (hk[0][a] * hk[0][b] + hk[1][a] * hk[1][b]) * we;
-					if (Math.abs(v) < 1e-30)
+					if (Math.abs(v) < 1e-30) {
 						continue;
+					}
 					addSym(T, g[a], g[b], v);
 				}
 			}
@@ -246,26 +272,28 @@ public final class Malleo {
 	}
 
 	/**
-	 * Performs one deformation update for the given handle target positions.
+	 * Applies the current handle targets and returns the updated (deformed)
+	 * polygon.
 	 *
 	 * <p>
-	 * The handle list must match the handle rest points used during
-	 * {@link #compile(List)} (same count and order). This method is intended to be
-	 * called repeatedly (e.g., during dragging), reusing the sparse factorizations
-	 * stored in {@link Compiled}.
-	 * 
+	 * Call this repeatedly during interaction (e.g., once per mouse-move / frame).
+	 * The handle targets must match the handle set used to create {@code compiled}
+	 * (same count and order).
 	 *
-	 * @param compiled      result of {@link #compile(List)} for the desired handle
-	 *                      set
-	 * @param handleTargets target positions (world/deformed space) for each handle,
-	 *                      same order as compilation
-	 * @return deformed polygon (shell and holes), with boundary vertices updated.
-	 *         Can self-intersect.
-	 * @throws IllegalArgumentException if the handle count/order does not match
-	 *                                  {@code compiled}
+	 * <p>
+	 * The returned polygon is the rest polygon with its boundary vertices moved to
+	 * their solved positions.
+	 *
+	 * @param compiled      compiled handle set returned by
+	 *                      {@link #prepareHandles(List)}
+	 * @param handleTargets new positions for each handle, in the same order used
+	 *                      for preparation
+	 * @return the deformed polygon (may self-intersect)
 	 * @throws NullPointerException     if any argument is null
+	 * @throws IllegalArgumentException if {@code handleTargets.size()} does not
+	 *                                  match {@code compiled}
 	 */
-	public Polygon deform(Compiled compiled, List<Coordinate> handleTargets) {
+	public Polygon solve(CompiledHandles compiled, List<Coordinate> handleTargets) {
 		Objects.requireNonNull(compiled);
 		Objects.requireNonNull(handleTargets);
 		if (handleTargets.size() != compiled.handles.size()) {
@@ -424,12 +452,12 @@ public final class Malleo {
 	 *
 	 * <p>
 	 * Returns {@code [c, s]} representing:
-	 * 
+	 *
 	 * <pre>
 	 * [ c  s]
 	 * [-s  c]
 	 * </pre>
-	 * 
+	 *
 	 * If the magnitude is near-zero, returns the identity rotation.
 	 */
 	private static double[] computeNormalizedRotation(Edge e, double[] px, double[] py, double eps) {
@@ -545,9 +573,7 @@ public final class Malleo {
 
 	/**
 	 * Builds the internal triangle mesh from an externally-provided triangulation
-	 * geometry instead of computing one from scratch. This mirrors the logic of
-	 * buildMesh(Polygon, Params) but skips refinement and uses the provided
-	 * triangulation Geometry.
+	 * geometry.
 	 */
 	private static Mesh buildMesh(Polygon poly, Geometry triGeom, Params p) {
 		GeometryFactory gf = poly.getFactory();
@@ -565,7 +591,7 @@ public final class Malleo {
 		}
 
 		// Sites start as boundary vertices (unique)
-		LinkedHashMap<CoordKey, Coordinate> sites = new LinkedHashMap<>(boundary.size() * 2);
+		Map<CoordKey, Coordinate> sites = new HashMap<>(boundary.size() * 2);
 		for (Coordinate c : boundary) {
 			sites.put(new CoordKey(c), new Coordinate(c));
 		}
@@ -603,7 +629,7 @@ public final class Malleo {
 		// triangles array for handle lookup
 		int[][] trianglesArr = tri.triangles.toArray(new int[0][]);
 
-		return new Mesh(gf, tri.rx, tri.ry, trianglesArr, edges, shellRing, holeRings, index, locator);
+		return new Mesh(poly, gf, tri.rx, tri.ry, trianglesArr, edges, shellRing, holeRings, index, locator);
 	}
 
 	/**
@@ -616,41 +642,77 @@ public final class Malleo {
 		return ring;
 	}
 
+	private Coordinate snapHandleToRestPolygon(Coordinate p) {
+		Point point = mesh.gf.createPoint(p);
+		Coordinate snapped = DistanceOp.nearestPoints(mesh.restPolygon, point)[0];
+		return new Coordinate(snapped); // defensive copy
+	}
+
 	/**
 	 * User-tunable parameters affecting stability and constraint weighting.
-	 *
-	 * <p>
-	 * Most callers only need to adjust {@link #targetVertexCount},
-	 * {@link #handleWeight}, and {@link #useCotangentWeights}.
 	 */
 	public static final class Params {
-		/** Constraint weight (paper uses 1000). */
-		public double handleWeight = 1000.0;
 		/**
-		 * Use cotangent weights for edges (recommended for irregular triangulations).
+		 * Constraint weight applied to handle constraints (paper uses 1000).
+		 *
+		 * <p>
+		 * Default: {@code 1000.0}
+		 */
+		public double handleWeight = 1000.0;
+
+		/**
+		 * If {@code true}, uses cotangent weights for edges (recommended for irregular
+		 * triangulations). If {@code false}, uses uniform edge weights.
+		 *
+		 * <p>
+		 * Default: {@code true}
 		 */
 		public boolean useCotangentWeights = true;
-		/** Robustness eps for barycentric and degeneracy. */
+
+		/**
+		 * If {@code true}, handle rest points that lie outside the rest polygon are
+		 * snapped to the closest point on the rest polygon (typically the boundary). If
+		 * {@code false}, outside handles throw.
+		 *
+		 * <p>
+		 * Default: {@code false}
+		 */
+		public boolean snapHandlesToBoundary = false;
+
+		/**
+		 * Robustness epsilon used for degeneracy checks (e.g., near-zero areas,
+		 * divisions, and barycentric computations).
+		 *
+		 * <p>
+		 * Default: {@code 1e-12}
+		 */
 		public double eps = 1e-12;
-		/** If true, clamp cotangent weights to be >= eps to preserve SPD. */
-		public boolean clampWeightsPositive = true;
+
+		/**
+		 * If {@code true}, clamps computed cotangent edge weights to be at least
+		 * {@link #eps} to better preserve SPD matrices.
+		 *
+		 * <p>
+		 * Default: {@code true}
+		 */
+		private boolean clampWeightsPositive = true;
 	}
 
 	/**
 	 * Immutable, reusable compiled state for a specific handle set.
 	 *
 	 * <p>
-	 * Instances are created by {@link #compile(List)} and can be reused across many
-	 * calls to {@link #deform(Compiled, List)} as long as the handle count/order is
-	 * unchanged.
+	 * Instances are created by {@link #prepareHandles(List)} and can be reused
+	 * across many calls to {@link #solve(CompiledHandles, List)} as long as the
+	 * handle count/order is unchanged.
 	 */
-	public static final class Compiled {
+	public static final class CompiledHandles {
 		private final List<HandleInfo> handles;
 		private final LinearSolverSparse<DMatrixSparseCSC, DMatrixRMaj> solverStep1; // (2V)x(2V)
 		private final LinearSolverSparse<DMatrixSparseCSC, DMatrixRMaj> solverStep2; // (V)x(V)
 		public final int vertexCount;
 
-		private Compiled(List<HandleInfo> handles, LinearSolverSparse<DMatrixSparseCSC, DMatrixRMaj> solverStep1,
+		private CompiledHandles(List<HandleInfo> handles, LinearSolverSparse<DMatrixSparseCSC, DMatrixRMaj> solverStep1,
 				LinearSolverSparse<DMatrixSparseCSC, DMatrixRMaj> solverStep2, int vertexCount) {
 			this.handles = handles;
 			this.solverStep1 = solverStep1;
@@ -660,6 +722,7 @@ public final class Malleo {
 	}
 
 	private static final class Mesh {
+		final Geometry restPolygon;
 		final GeometryFactory gf;
 
 		final double[] rx, ry; // rest vertex positions
@@ -675,8 +738,9 @@ public final class Malleo {
 
 		final IndexedPointInAreaLocator locator;
 
-		Mesh(GeometryFactory gf, double[] rx, double[] ry, int[][] triangles, List<Edge> edges, int[] shellRing, int[][] holeRings, SpatialIndex triIndex,
-				IndexedPointInAreaLocator locator) {
+		Mesh(Polygon restPolygon, GeometryFactory gf, double[] rx, double[] ry, int[][] triangles, List<Edge> edges, int[] shellRing, int[][] holeRings,
+				SpatialIndex triIndex, IndexedPointInAreaLocator locator) {
+			this.restPolygon = restPolygon;
 			this.gf = gf;
 			this.rx = rx;
 			this.ry = ry;
@@ -865,9 +929,10 @@ public final class Malleo {
 			if (this == o) {
 				return true;
 			}
-			if (!(o instanceof CoordKey k)) {
+			if (!(o instanceof CoordKey)) {
 				return false;
 			}
+			CoordKey k = (CoordKey) o;
 			return xq == k.xq && yq == k.yq;
 		}
 
@@ -898,12 +963,12 @@ public final class Malleo {
 
 		List<Edge> edges = new ArrayList<>(adj.size());
 
-		for (Map.Entry<Long, List<Adj>> en : adj.entrySet()) {
-			long key = en.getKey();
+		for (Entry<Long, List<Adj>> entry : adj.entrySet()) {
+			long key = entry.getKey();
 			int vi = (int) (key >>> 32);
 			int vj = (int) (key & 0xffffffffL);
 
-			List<Adj> list = en.getValue();
+			List<Adj> list = entry.getValue();
 			boolean boundary = list.size() == 1;
 			if (!(list.size() == 1 || list.size() == 2)) {
 				continue;

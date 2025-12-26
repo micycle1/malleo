@@ -1,13 +1,13 @@
 package org.ejml.sparse.csc.factory;
 
+import java.util.Arrays;
+import java.util.Random;
+
 import org.ejml.UtilEjml;
 import org.ejml.data.DMatrixSparseCSC;
 import org.ejml.data.IGrowArray;
 import org.ejml.sparse.ComputePermutation;
 import org.ejml.sparse.FillReducing;
-
-import java.util.Arrays;
-import java.util.Random;
 
 /**
  * @author Peter Abeles
@@ -55,8 +55,9 @@ public class FillReductionFactory_DSCC {
                     @Override
                     @SuppressWarnings("NullAway") // constructor parameters ensures these are not null
                     public void process( DMatrixSparseCSC m ) {
-                        if (m.numRows != m.numCols)
-                            throw new IllegalArgumentException("SymRCM requires a square (structurally symmetric) matrix");
+                        if (m.numRows != m.numCols) {
+							throw new IllegalArgumentException("SymRCM requires a square (structurally symmetric) matrix");
+						}
                         prow.reshape(m.numRows);
                         pcol.reshape(m.numCols);
                         symrcm(m, true, prow);
@@ -69,8 +70,9 @@ public class FillReductionFactory_DSCC {
                     @Override
                     @SuppressWarnings("NullAway") // constructor parameters ensures these are not null
                     public void process( DMatrixSparseCSC m ) {
-                        if (m.numRows != m.numCols)
-                            throw new IllegalArgumentException("SymRCM requires a square (structurally symmetric) matrix");
+                        if (m.numRows != m.numCols) {
+							throw new IllegalArgumentException("SymRCM requires a square (structurally symmetric) matrix");
+						}
                         prow.reshape(m.numRows);
                         pcol.reshape(m.numCols);
                         symrcm(m, false, prow);
@@ -95,7 +97,9 @@ public class FillReductionFactory_DSCC {
     private static void symrcm( DMatrixSparseCSC A, boolean sortByDegree, IGrowArray perm ) {
         final int n = A.numCols;
         perm.reshape(n);
-        if (n == 0) return;
+        if (n == 0) {
+			return;
+		}
 
         // degree[v] = number of neighbors in column v (matches the Julia code: colptr[v+1]-colptr[v])
         final int[] degree = new int[n];
@@ -128,12 +132,16 @@ public class FillReductionFactory_DSCC {
         // 3) reset labels for the component
         // 4) BFS from root to append Cuthill-McKee ordering for that component
         for (int start = 0; start < n; start++) {
-            if (label[start]) continue;
+            if (label[start]) {
+				continue;
+			}
 
             int compLen = bfsCollectComponent(start, label, queue, component, colIdx, nzRows);
             int root = findMinDegreeVertex(component, compLen, degree);
 
-            for (int i = 0; i < compLen; i++) label[component[i]] = false;
+            for (int i = 0; i < compLen; i++) {
+				label[component[i]] = false;
+			}
 
             orderLen = bfsAppendOrder(root, label, queue, order, orderLen, colIdx, nzRows);
         }
@@ -147,8 +155,9 @@ public class FillReductionFactory_DSCC {
 
         // If input graph has isolated vertices, orderLen should still be n
         // (kept as a sanity check; can be removed if undesired)
-        if (orderLen != n)
-            throw new IllegalStateException("symrcm: internal error. orderLen=" + orderLen + " n=" + n);
+        if (orderLen != n) {
+			throw new IllegalStateException("symrcm: internal error. orderLen=" + orderLen + " n=" + n);
+		}
     }
 
     private static int bfsCollectComponent( int root, boolean[] label, int[] queue, int[] component,
@@ -215,7 +224,9 @@ public class FillReductionFactory_DSCC {
         for (int col = 0; col < n; col++) {
             int start = colIdx[col];
             int end = colIdx[col + 1] - 1; // inclusive
-            if (end <= start) continue;
+            if (end <= start) {
+				continue;
+			}
             quickSortByDegree(nzRows, start, end, degree);
         }
     }
@@ -228,8 +239,12 @@ public class FillReductionFactory_DSCC {
             int pivotDeg = degree[pivot];
 
             while (i <= j) {
-                while (lessByDegreeThenIndex(a[i], pivot, degree, pivotDeg)) i++;
-                while (lessByDegreeThenIndex(pivot, a[j], degree, pivotDeg)) j--;
+                while (lessByDegreeThenIndex(a[i], pivot, degree, pivotDeg)) {
+					i++;
+				}
+                while (lessByDegreeThenIndex(pivot, a[j], degree, pivotDeg)) {
+					j--;
+				}
                 if (i <= j) {
                     int tmp = a[i];
                     a[i] = a[j];
@@ -241,10 +256,14 @@ public class FillReductionFactory_DSCC {
 
             // Recurse on smaller partition first (limits recursion depth)
             if (j - lo < hi - i) {
-                if (lo < j) quickSortByDegree(a, lo, j, degree);
+                if (lo < j) {
+					quickSortByDegree(a, lo, j, degree);
+				}
                 lo = i;
             } else {
-                if (i < hi) quickSortByDegree(a, i, hi, degree);
+                if (i < hi) {
+					quickSortByDegree(a, i, hi, degree);
+				}
                 hi = j;
             }
         }
@@ -252,7 +271,9 @@ public class FillReductionFactory_DSCC {
 
     private static boolean lessByDegreeThenIndex( int x, int y, int[] degree, int degreeY ) {
         int dx = degree[x];
-        if (dx != degreeY) return dx < degreeY;
+        if (dx != degreeY) {
+			return dx < degreeY;
+		}
         return x < y;
     }
 }
