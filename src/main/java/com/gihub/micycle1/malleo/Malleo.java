@@ -15,9 +15,9 @@ import org.ejml.data.DMatrixSparseCSC;
 import org.ejml.data.DMatrixSparseTriplet;
 import org.ejml.interfaces.linsol.LinearSolverSparse;
 import org.ejml.ops.DConvertMatrixStruct;
-import org.ejml.sparse.FillReducing;
+import org.ejml.sparse.FillReducing2;
 import org.ejml.sparse.csc.CommonOps_DSCC;
-import org.ejml.sparse.csc.factory.LinearSolverFactory_DSCC;
+import org.ejml.sparse.csc.factory.LinearSolverFactory_DSCC2;
 import org.locationtech.jts.algorithm.locate.IndexedPointInAreaLocator;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Envelope;
@@ -213,11 +213,11 @@ public final class Malleo {
 		CommonOps_DSCC.add(1.0, gram2Base, 1.0, handle2, gram2, null, null);
 		CommonOps_DSCC.duplicatesAdd(gram2, null);
 
-		LinearSolverSparse<DMatrixSparseCSC, DMatrixRMaj> solver1 = LinearSolverFactory_DSCC.cholesky(FillReducing.SYMRCM_NO_SORT);
+		LinearSolverSparse<DMatrixSparseCSC, DMatrixRMaj> solver1 = LinearSolverFactory_DSCC2.cholesky(FillReducing2.SYMRCM_NO_SORT);
 		if (!solver1.setA(gram1)) {
 			throw new IllegalStateException("Step1 factorization failed (matrix not SPD?).");
 		}
-		LinearSolverSparse<DMatrixSparseCSC, DMatrixRMaj> solver2 = LinearSolverFactory_DSCC.cholesky(FillReducing.SYMRCM_NO_SORT);
+		LinearSolverSparse<DMatrixSparseCSC, DMatrixRMaj> solver2 = LinearSolverFactory_DSCC2.cholesky(FillReducing2.SYMRCM_NO_SORT);
 		if (!solver2.setA(gram2)) {
 			throw new IllegalStateException("Step2 factorization failed (matrix not SPD?).");
 		}

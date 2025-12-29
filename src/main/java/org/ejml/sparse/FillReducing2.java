@@ -1,6 +1,6 @@
 package org.ejml.sparse;
 
-public enum FillReducing {
+public enum FillReducing2 {
 	NONE, //
 	RANDOM, //
 	IDENTITY, //
