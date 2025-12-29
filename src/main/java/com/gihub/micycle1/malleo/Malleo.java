@@ -213,11 +213,11 @@ public final class Malleo {
 		CommonOps_DSCC.add(1.0, gram2Base, 1.0, handle2, gram2, null, null);
 		CommonOps_DSCC.duplicatesAdd(gram2, null);
 
-		LinearSolverSparse<DMatrixSparseCSC, DMatrixRMaj> solver1 = LinearSolverFactory_DSCC.cholesky(FillReducing.SYMRCM_NO_SORT);
+		LinearSolverSparse<DMatrixSparseCSC, DMatrixRMaj> solver1 = LinearSolverFactory_DSCC.cholesky(FillReducing.SYMRCM_RCMPLUSPLUS);
 		if (!solver1.setA(gram1)) {
 			throw new IllegalStateException("Step1 factorization failed (matrix not SPD?).");
 		}
-		LinearSolverSparse<DMatrixSparseCSC, DMatrixRMaj> solver2 = LinearSolverFactory_DSCC.cholesky(FillReducing.SYMRCM_NO_SORT);
+		LinearSolverSparse<DMatrixSparseCSC, DMatrixRMaj> solver2 = LinearSolverFactory_DSCC.cholesky(FillReducing.SYMRCM_RCMPLUSPLUS);
 		if (!solver2.setA(gram2)) {
 			throw new IllegalStateException("Step2 factorization failed (matrix not SPD?).");
 		}
