@@ -47,6 +47,44 @@
 					</execution>
 				</executions>
 			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-shade-plugin</artifactId>
+				<version>3.6.1</version>
+				<executions>
+					<execution>
+						<phase>package</phase>
+						<goals>
+							<goal>shade</goal>
+						</goals>
+						<configuration>
+							<!-- Make shaded JAR be the main artifact consumers
+							get -->
+							<shadedArtifactAttached>false</shadedArtifactAttached>
+							<!-- Remove the shaded dependency from the generated
+							POM so consumers won't also pull EJML -->
+							<createDependencyReducedPom>true</createDependencyReducedPom>
+							<filters>
+								<filter>
+									<!-- matches the EJML artifact in your pom -->
+									<artifact>org.ejml:ejml-dsparse</artifact>
+									<excludes>
+										<!-- exclude the original class from the
+										EJML dependency jar -->
+										<exclude>
+											org/ejml/sparse/csc/factory/FillReductionFactory_DSCC.class</exclude>
+									</excludes>
+								</filter>
+							</filters>
+
+							<transformers>
+								<transformer
+									implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer" />
+							</transformers>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
 		</plugins>
 	</build>
 	<dependencies>
