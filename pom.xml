@@ -58,29 +58,30 @@
 							<goal>shade</goal>
 						</goals>
 						<configuration>
-							<!-- Make shaded JAR be the main artifact consumers
-							get -->
-							<shadedArtifactAttached>false</shadedArtifactAttached>
-							<!-- Remove the shaded dependency from the generated
-							POM so consumers won't also pull EJML -->
 							<createDependencyReducedPom>true</createDependencyReducedPom>
+							<shadedArtifactAttached>false</shadedArtifactAttached>
+							<relocations>
+								<relocation>
+									<pattern>org.ejml</pattern>
+									<shadedPattern>
+										com.github.micycle1.shaded.ejml</shadedPattern>
+									<excludes>
+										<exclude>
+											org.ejml.sparse.csc.factory.LinearSolverFactory_DSCC</exclude>
+										<exclude>org.ejml.sparse.FillReducing</exclude>
+									</excludes>
+								</relocation>
+							</relocations>
 							<filters>
 								<filter>
-									<!-- matches the EJML artifact in your pom -->
-									<artifact>org.ejml:ejml-dsparse</artifact>
+									<artifact>org.ejml:*</artifact>
 									<excludes>
-										<!-- exclude the original class from the
-										EJML dependency jar -->
-										<exclude>
-											org/ejml/sparse/csc/factory/FillReductionFactory_DSCC.class</exclude>
+										<exclude>META-INF/*.SF</exclude>
+										<exclude>META-INF/*.DSA</exclude>
+										<exclude>META-INF/*.RSA</exclude>
 									</excludes>
 								</filter>
 							</filters>
-
-							<transformers>
-								<transformer
-									implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer" />
-							</transformers>
 						</configuration>
 					</execution>
 				</executions>
