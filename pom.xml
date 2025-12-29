@@ -4,7 +4,7 @@
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>com.github.micycle1</groupId>
 	<artifactId>malleo</artifactId>
-	<version>1.0-SNAPSHOT</version>
+	<version>1.0</version>
 	<name>malleo</name>
 	<description>As-rigid-as-possible shape deformation for Java</description>
 	<build>

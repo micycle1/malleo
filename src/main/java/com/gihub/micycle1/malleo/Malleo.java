@@ -548,7 +548,7 @@ public final class Malleo {
 
 		double e = 1e-10; // containment slack
 		if (wa >= -e && wb >= -e && wc >= -e && wa <= 1 + e && wb <= 1 + e && wc <= 1 + e) {
-			return new HandleInfo(a, b, c, wa, wb, wc);
+			return new HandleInfo(a, b, c, wa, wb, wc, p);
 		}
 		return null;
 	}
@@ -707,7 +707,7 @@ public final class Malleo {
 	 * handle count/order is unchanged.
 	 */
 	public static final class CompiledHandles {
-		private final List<HandleInfo> handles;
+		public final List<HandleInfo> handles;
 		private final LinearSolverSparse<DMatrixSparseCSC, DMatrixRMaj> solverStep1; // (2V)x(2V)
 		private final LinearSolverSparse<DMatrixSparseCSC, DMatrixRMaj> solverStep2; // (V)x(V)
 		public final int vertexCount;
@@ -779,17 +779,19 @@ public final class Malleo {
 		}
 	}
 
-	private static final class HandleInfo {
+	public static final class HandleInfo {
+		public final Coordinate p;
 		final int a, b, c;
 		final double wa, wb, wc;
 
-		HandleInfo(int a, int b, int c, double wa, double wb, double wc) {
+		HandleInfo(int a, int b, int c, double wa, double wb, double wc, Coordinate p) {
 			this.a = a;
 			this.b = b;
 			this.c = c;
 			this.wa = wa;
 			this.wb = wb;
 			this.wc = wc;
+			this.p = p;
 		}
 	}
 
