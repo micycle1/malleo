@@ -7,15 +7,15 @@ import org.ejml.UtilEjml;
 import org.ejml.data.DMatrixSparseCSC;
 import org.ejml.data.IGrowArray;
 import org.ejml.sparse.ComputePermutation;
-import org.ejml.sparse.FillReducing;
+import org.ejml.sparse.FillReducing2;
 
 /**
  * @author Peter Abeles
  */
-public class FillReductionFactory_DSCC {
+public class FillReductionFactory_DSCC2 {
 	public static final Random rand = new Random(234234);
 
-	public static ComputePermutation<DMatrixSparseCSC> create(FillReducing type) {
+	public static ComputePermutation<DMatrixSparseCSC> create(FillReducing2 type) {
 		switch (type) {
 			case NONE :
 				return null;
@@ -89,7 +89,7 @@ public class FillReductionFactory_DSCC {
 						}
 						prow.reshape(m.numRows);
 						pcol.reshape(m.numCols);
-						symrcmRcmpp(m, true, prow);
+						symrcmRcmpp(m, false, prow);
 						System.arraycopy(prow.data, 0, pcol.data, 0, prow.length);
 					}
 				};
